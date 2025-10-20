@@ -118,13 +118,8 @@ function isWhitelisted(item) {
 }
 
 function hasMemberStarIcon(item) {
-  const ytIcons = item.querySelectorAll('yt-icon[size="16"]');
-  for (const icon of ytIcons) {
-    const parent = icon.closest('ytd-badge-supported-renderer, yt-badge-view-model');
-    if (parent) return true;
-  }
-  
   const svgs = item.querySelectorAll('svg');
+  
   for (const svg of svgs) {
     const path = svg.querySelector('path[d*="M6 .5a5.5 5.5"]');
     if (path) {
@@ -132,53 +127,6 @@ function hasMemberStarIcon(item) {
       if (dAttr && dAttr.includes('M6 .5a5.5 5.5') && dAttr.includes('.906 1.837')) {
         return true;
       }
-    }
-  }
-  
-  return false;
-}
-
-function hasMemberText(item) {
-  const memberPhrases = [
-    'solo para miembro',
-    'members only',
-    'member only',
-    'réservé aux membre',
-    'nur für mitglieder',
-    'apenas para membro',
-    'só para membro',
-    '仅限会员',
-    '僅限會員',
-    'メンバー限定',
-    'membri',
-    'только для участников',
-    'sadece üyeler',
-    'alleen leden',
-    'tylko członk',
-    'μόνο μέλη',
-    'kun medlemmer',
-    'endast medlem',
-    'vain jäsen',
-    'kun for medlemmer',
-    'chỉ dành cho thành viên',
-    'สำหรับสมาชิก',
-    'untuk anggota',
-    '회원 전용',
-    'فقط للأعضاء',
-    'רק לחברים',
-    'केवल सदस्य',
-    'pouze pro členy',
-    'doar membri',
-    'samo članovi',
-    'тільки учасник',
-    'apenas membros'
-  ];
-  
-  const textElements = item.querySelectorAll('p, span, div');
-  for (const el of textElements) {
-    const text = el.textContent?.toLowerCase() || '';
-    for (const phrase of memberPhrases) {
-      if (text.includes(phrase)) return true;
     }
   }
   
@@ -205,7 +153,7 @@ function hideMembersOnlyContent() {
   let removed = 0;
 
   document.querySelectorAll(containers).forEach(item => {
-    if (!item.querySelector(badgeClassSelectors) && !hasMemberStarIcon(item) && !hasMemberText(item)) return;
+    if (!item.querySelector(badgeClassSelectors) && !hasMemberStarIcon(item)) return;
     
     const itemId = getItemId(item);
     
