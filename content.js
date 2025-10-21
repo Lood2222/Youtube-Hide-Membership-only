@@ -3,6 +3,8 @@ let isEnabled = true;
 let observer = null;
 let whitelistedChannels = [];
 let processedItems = new Set();
+let lastUrl = location.href;
+let checkInterval = null;
 
 async function checkIfEnabled() {
   const response = await browser.runtime.sendMessage({ action: "isEnabled" });
@@ -67,10 +69,12 @@ function getChannelInfo(item) {
 }
 
 function isWhitelisted(item) {
-  if (whitelistedChannels.length === 0) return false;
-  
   const videoTitle = item.querySelector('#video-title, h3, .title')?.textContent?.trim() || 'Unknown video';
-  const channelName = getChannelInfo(item);
+  
+  if (whitelistedChannels.length === 0) {
+    console.log(`[YHM]  BLOCKED - Video: "${videoTitle}"`);
+    return false;
+  }
   
   const currentUrl = window.location.href;
   
@@ -79,12 +83,12 @@ function isWhitelisted(item) {
     
     if (cleanChannel.startsWith('@')) {
       if (currentUrl.includes('/@' + cleanChannel.substring(1))) {
-        console.log(`✓ WHITELISTED (on channel page) - Video: "${videoTitle}" | Channel: ${channelName} | Whitelist entry: ${cleanChannel}`);
+        console.log(`[YHM] WHITELISTED (on channel page) - Video: "${videoTitle}" | Whitelist entry: ${cleanChannel}`);
         return true;
       }
     } else {
       if (currentUrl.includes('/channel/' + cleanChannel) || currentUrl.includes('/c/' + cleanChannel)) {
-        console.log(`✓ WHITELISTED (on channel page) - Video: "${videoTitle}" | Channel: ${channelName} | Whitelist entry: ${cleanChannel}`);
+        console.log(`[YHM] WHITELISTED (on channel page) - Video: "${videoTitle}" | Whitelist entry: ${cleanChannel}`);
         return true;
       }
     }
@@ -101,19 +105,19 @@ function isWhitelisted(item) {
       if (cleanChannel.startsWith('@')) {
         const handle = cleanChannel.substring(1);
         if (href && href.includes('/@' + handle)) {
-          console.log(`✓ WHITELISTED (video link match) - Video: "${videoTitle}" | Channel: ${channelName} | Whitelist entry: ${cleanChannel}`);
+          console.log(`[YHM] WHITELISTED (video link match) - Video: "${videoTitle}" | Whitelist entry: ${cleanChannel}`);
           return true;
         }
       } else {
         if (href && (href.includes('/channel/' + cleanChannel) || href.includes('/c/' + cleanChannel))) {
-          console.log(`✓ WHITELISTED (video link match) - Video: "${videoTitle}" | Channel: ${channelName} | Whitelist entry: ${cleanChannel}`);
+          console.log(`[YHM] WHITELISTED (video link match) - Video: "${videoTitle}" | Whitelist entry: ${cleanChannel}`);
           return true;
         }
       }
     }
   }
   
-  console.log(`✗ BLOCKED - Video: "${videoTitle}" | Channel: ${channelName}`);
+  console.log(`[YHM] BLOCKED - Video: "${videoTitle}"`);
   return false;
 }
 
@@ -179,17 +183,78 @@ function hideMembersOnlyContent() {
   }
 }
 
+function checkUrlChange() {
+  const currentUrl = location.href;
+  if (currentUrl !== lastUrl) {
+    lastUrl = currentUrl;
+    processedItems.clear();
+    setTimeout(() => {
+      hideMembersOnlyContent();
+    }, 500);
+  }
+}
+
 function startObserver() {
   if (observer) {
     observer.disconnect();
   }
-  observer = new MutationObserver(hideMembersOnlyContent);
-  observer.observe(document.body, { childList: true, subtree: true });
+  
+  observer = new MutationObserver((mutations) => {
+    let shouldProcess = false;
+    
+    for (const mutation of mutations) {
+      if (mutation.addedNodes.length > 0) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === 1) {
+            const containers = [
+              'ytd-rich-item-renderer',
+              'yt-lockup-view-model',
+              'ytd-video-renderer',
+              'ytd-grid-video-renderer',
+              'ytd-compact-video-renderer'
+            ];
+            
+            if (containers.some(selector => node.matches && node.matches(selector))) {
+              shouldProcess = true;
+              break;
+            }
+            
+            if (node.querySelector && containers.some(selector => node.querySelector(selector))) {
+              shouldProcess = true;
+              break;
+            }
+          }
+        }
+      }
+      if (shouldProcess) break;
+    }
+    
+    if (shouldProcess) {
+      hideMembersOnlyContent();
+    }
+  });
+  
+  observer.observe(document.body, { 
+    childList: true, 
+    subtree: true 
+  });
+  
+  if (checkInterval) {
+    clearInterval(checkInterval);
+  }
+  checkInterval = setInterval(() => {
+    checkUrlChange();
+    hideMembersOnlyContent();
+  }, 1000);
 }
 
 function stopObserver() {
   if (observer) {
     observer.disconnect();
+  }
+  if (checkInterval) {
+    clearInterval(checkInterval);
+    checkInterval = null;
   }
 }
 
