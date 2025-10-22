@@ -22,7 +22,7 @@ async function loadBlockedTitlesCache() {
     const data = await browser.storage.local.get("blockedTitlesCache");
     if (data.blockedTitlesCache && Array.isArray(data.blockedTitlesCache)) {
       blockedTitlesCache = new Set(data.blockedTitlesCache);
-      console.log(`[YHM] Cache Loaded ${blockedTitlesCache.size} blocked titles from cache`);
+      console.log(`[YHM] Cache Loaded ${blockedTitlesCache.size} blocked titles in cache`);
     }
   } catch (error) {
     console.error('[YHM] Error loading cache:', error);
@@ -113,7 +113,7 @@ function isWhitelisted(item) {
   const videoTitle = getVideoTitle(item) || 'Unknown video';
   
   if (whitelistedChannels.length === 0) {
-    console.log(`[YHM]  BLOCKED - Video: "${videoTitle}"`);
+    console.log(`[YHM] BLOCKED - Video: "${videoTitle}"`);
     return false;
   }
   
