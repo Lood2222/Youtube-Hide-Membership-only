@@ -10,7 +10,7 @@ A Firefox extension that automatically hides members-only content on YouTube, pr
 - **Statistics Tracking**: Displays blocked video count per session and globally
 - **Toggle On/Off**: Easy enable/disable button
 - **Channel Whitelist**: Add specific channels to whitelist, allowing their members-only content to remain visible
-
+- **Smart Caching**: Remembers blocked videos for faster detection
 ## Installation
 
 ### From Firefox Add-ons 
@@ -36,7 +36,7 @@ The extension identifies members-only content by searching for YouTube's members
 - `.badge-style-type-members-only`
 - `.badge-style-type-membership`
 - `.yt-badge-shape--membership`
-
+- **Member star SVG icon**
 
 ## Privacy
 
