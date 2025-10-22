@@ -3,9 +3,11 @@ let isEnabled = true;
 let observer = null;
 let whitelistedChannels = [];
 let processedItems = new Set();
+let permanentlyBlockedItems = new Set();
 let lastUrl = location.href;
 let checkInterval = null;
 let blockedVideosCache = new Map();
+let channelNameCache = new Map();
 
 async function checkIfEnabled() {
   const response = await browser.runtime.sendMessage({ action: "isEnabled" });
@@ -57,6 +59,107 @@ async function saveBlockedVideo(title, channelInfo) {
   }
 }
 
+async function fetchChannelName(handle) {
+  if (channelNameCache.has(handle)) {
+    return channelNameCache.get(handle);
+  }
+
+  const url = `https://www.youtube.com/${handle}`;
+  try {
+    const r = await fetch(url);
+    const html = await r.text();
+    let match = html.match(/<meta property="og:title" content="([^"]+)"/i);
+    if (match) {
+      const channelName = match[1];
+      channelNameCache.set(handle, channelName);
+      console.log(`[YHM] Fetched channel name: ${handle} -> ${channelName}`);
+      return channelName;
+    }
+    match = html.match(/<script type="application\/ld\+json">([^<]+)<\/script>/i);
+    if (match) {
+      const obj = JSON.parse(match[1]);
+      if (obj && obj.name) {
+        const channelName = obj.name;
+        channelNameCache.set(handle, channelName);
+        console.log(`[YHM] Fetched channel name: ${handle} -> ${channelName}`);
+        return channelName;
+      }
+    }
+  } catch (e) {
+    console.error("[YHM] Fetch failed:", e);
+  }
+  return null;
+}
+
+function extractChannelHandleFromUrl() {
+  const url = window.location.href;
+  
+  const handleMatch = url.match(/\/@([^\/\?]+)/);
+  if (handleMatch) {
+    return `@${handleMatch[1]}`;
+  }
+  
+  return null;
+}
+
+async function getChannelInfo(item) {
+  const urlHandle = extractChannelHandleFromUrl();
+  if (urlHandle) {
+    console.log(`[YHM] Detected channel page: ${urlHandle}`);
+    const channelName = await fetchChannelName(urlHandle);
+    if (channelName) {
+      console.log(`[YHM] Using channel name from URL: ${channelName}`);
+      return channelName;
+    }
+    return urlHandle;
+  }
+
+  const channelSelectors = [
+    'yt-content-metadata-view-model .yt-content-metadata-view-model__metadata-row span.yt-core-attributed-string',
+    '.yt-core-attributed-string.yt-content-metadata-view-model__metadata-text',
+    '.ytd-channel-name',
+    '#channel-name #text',
+    'a[href*="/@"]',
+  ];
+
+  for (const selector of channelSelectors) {
+    const element = item.querySelector(selector);
+    if (element) {
+      const text = element.textContent?.trim();
+      if (text && text.length > 0 && !text.includes('subscribers') && !text.includes('Emitido')) {
+        console.log(`[YHM] Found channel name: "${text}" using selector: ${selector}`);
+        return text;
+      }
+    }
+  }
+
+  const channelLinks = item.querySelectorAll('a[href*="/@"], a[href*="/channel/"], a[href*="/c/"]');
+
+  for (const link of channelLinks) {
+    const href = link.getAttribute('href');
+    if (!href) continue;
+
+    const handleMatch = href.match(/\/@([^\/\?]+)/);
+    if (handleMatch) {
+      const handle = `@${handleMatch[1]}`;
+      const channelName = await fetchChannelName(handle);
+      if (channelName) {
+        return channelName;
+      }
+      return handle;
+    }
+
+    const idMatch = href.match(/\/channel\/([^\/\?]+)/);
+    if (idMatch) return idMatch[1];
+
+    const customMatch = href.match(/\/c\/([^\/\?]+)/);
+    if (customMatch) return customMatch[1];
+  }
+
+  console.log('[YHM] Could not determine channel info for item');
+  return 'Unknown channel';
+}
+
 function getItemId(item) {
   const videoLink = item.querySelector('a#video-title, a#thumbnail, a[href*="/watch?v="]');
   if (videoLink) {
@@ -78,55 +181,11 @@ function getVideoTitle(item) {
   return titleElement?.textContent?.trim() || null;
 }
 
-function getChannelInfo(item) {
-  const channelSelectors = [
-    'yt-content-metadata-view-model .yt-content-metadata-view-model__metadata-row span.yt-core-attributed-string',
-    '.yt-core-attributed-string.yt-content-metadata-view-model__metadata-text',
-    '.ytd-channel-name',
-    '#channel-name #text',
-    'a[href*="/@"]',
-  ];
-
-  for (const selector of channelSelectors) {
-    const element = item.querySelector(selector);
-    if (element) {
-      const text = element.textContent?.trim();
-      if (text && text.length > 0 && !text.includes('subscribers') && !text.includes('Emitido')) {
-        console.log(`[YHM] Found channel name: "${text}" using selector: ${selector}`);
-        return text;
-      }
-    }
-  }
-
-
-  const channelLinks = item.querySelectorAll('a[href*="/@"], a[href*="/channel/"], a[href*="/c/"]');
-
-  for (const link of channelLinks) {
-    const href = link.getAttribute('href');
-    if (!href) continue;
-
-    const handleMatch = href.match(/\/@([^\/\?]+)/);
-    if (handleMatch) return `@${handleMatch[1]}`;
-
-    const idMatch = href.match(/\/channel\/([^\/\?]+)/);
-    if (idMatch) return idMatch[1];
-
-    const customMatch = href.match(/\/c\/([^\/\?]+)/);
-    if (customMatch) return customMatch[1];
-  }
-
-  console.log('[YHM] Could not determine channel info for item');
-  return 'Unknown channel';
-}
-
-
 function normalizeChannelIdentifier(identifier) {
   if (!identifier) return '';
   
-
   let normalized = identifier.trim().toLowerCase();
   
-
   if (normalized.startsWith('@')) {
     return normalized;
   }
@@ -134,9 +193,9 @@ function normalizeChannelIdentifier(identifier) {
   return normalized;
 }
 
-function isWhitelisted(item) {
+async function isWhitelisted(item) {
   const videoTitle = getVideoTitle(item) || 'Unknown video';
-  const channelInfo = getChannelInfo(item);
+  const channelInfo = await getChannelInfo(item);
   
   console.log(`[YHM] Checking video: "${videoTitle}" from channel: "${channelInfo}"`);
   
@@ -148,35 +207,33 @@ function isWhitelisted(item) {
   const currentUrl = window.location.href;
   const normalizedChannelInfo = normalizeChannelIdentifier(channelInfo);
   
-
   for (const channel of whitelistedChannels) {
     const cleanChannel = channel.trim();
     const normalizedWhitelist = normalizeChannelIdentifier(cleanChannel);
     
-
     if (cleanChannel.startsWith('@')) {
       const handle = cleanChannel.substring(1).toLowerCase();
       if (currentUrl.toLowerCase().includes('/@' + handle)) {
-        console.log(`[YHM] WHITELISTED (on channel page) - Channel: ${cleanChannel}`);
+        console.log(`[YHM] WHITELISTED - Channel: ${cleanChannel}`);
         return true;
       }
     } else {
       const channelLower = cleanChannel.toLowerCase();
       if (currentUrl.toLowerCase().includes('/channel/' + channelLower) || 
           currentUrl.toLowerCase().includes('/c/' + channelLower)) {
-        console.log(`[YHM] WHITELISTED (on channel page) - Channel: ${cleanChannel}`);
+        console.log(`[YHM] WHITELISTED - Channel: ${cleanChannel}`);
         return true;
       }
     }
     
     if (normalizedChannelInfo === normalizedWhitelist) {
-      console.log(`[YHM] WHITELISTED (direct match) - Channel: ${cleanChannel}`);
+      console.log(`[YHM] WHITELISTED - Channel: ${cleanChannel}`);
       return true;
     }
     
     if (normalizedWhitelist.startsWith('@') && normalizedChannelInfo.startsWith('@')) {
       if (normalizedWhitelist === normalizedChannelInfo) {
-        console.log(`[YHM] WHITELISTED (handle match) - Channel: ${cleanChannel}`);
+        console.log(`[YHM] WHITELISTED - Channel: ${cleanChannel}`);
         return true;
       }
     }
@@ -191,14 +248,14 @@ function isWhitelisted(item) {
       if (cleanChannel.startsWith('@')) {
         const handle = cleanChannel.substring(1).toLowerCase();
         if (hrefLower.includes('/@' + handle)) {
-          console.log(`[YHM] WHITELISTED (link match) - Channel: ${cleanChannel}`);
+          console.log(`[YHM] WHITELISTED - Channel: ${cleanChannel}`);
           return true;
         }
       } else {
         const channelLower = cleanChannel.toLowerCase();
         if (hrefLower.includes('/channel/' + channelLower) || 
             hrefLower.includes('/c/' + channelLower)) {
-          console.log(`[YHM] WHITELISTED (link match) - Channel: ${cleanChannel}`);
+          console.log(`[YHM] WHITELISTED - Channel: ${cleanChannel}`);
           return true;
         }
       }
@@ -225,7 +282,18 @@ function hasMemberStarIcon(item) {
   return false;
 }
 
-function hideMembersOnlyContent() {
+function hideElement(element) {
+  element.style.setProperty('display', 'none', 'important');
+  element.style.setProperty('visibility', 'hidden', 'important');
+  element.style.setProperty('height', '0', 'important');
+  element.style.setProperty('width', '0', 'important');
+  element.style.setProperty('overflow', 'hidden', 'important');
+  element.style.setProperty('margin', '0', 'important');
+  element.style.setProperty('padding', '0', 'important');
+  element.setAttribute('data-yhm-hidden', 'true');
+}
+
+async function hideMembersOnlyContent() {
   if (!isEnabled) return;
 
   const containers = [
@@ -243,37 +311,51 @@ function hideMembersOnlyContent() {
   ].join(',');
 
   let removed = 0;
+  const items = document.querySelectorAll(containers);
 
-  document.querySelectorAll(containers).forEach(item => {
+  for (const item of items) {
+    if (item.getAttribute('data-yhm-hidden') === 'true') {
+      hideElement(item);
+      continue;
+    }
+
     const videoTitle = getVideoTitle(item);
+    const itemId = getItemId(item);
+    
+    if (itemId && permanentlyBlockedItems.has(itemId)) {
+      const ancestor = item.closest('ytd-rich-item-renderer, yt-lockup-view-model, ytd-video-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer') || item;
+      hideElement(ancestor);
+      console.log(`[YHM] CACHE FAST BLOCK - Video: "${videoTitle}"`);
+      continue;
+    }
     
     if (videoTitle && blockedVideosCache.has(videoTitle)) {
-      const itemId = getItemId(item);
       if (itemId && !processedItems.has(itemId)) {
         processedItems.add(itemId);
         
-        if (!isWhitelisted(item)) {
+        if (!(await isWhitelisted(item))) {
+          permanentlyBlockedItems.add(itemId);
           const ancestor = item.closest('ytd-rich-item-renderer, yt-lockup-view-model, ytd-video-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer') || item;
-          ancestor.remove();
+          hideElement(ancestor);
           removed++;
           const cachedData = blockedVideosCache.get(videoTitle);
           console.log(`[YHM] CACHE FAST BLOCK - Video: "${videoTitle}" | Channel: ${cachedData.channel}`);
         }
       }
-      return;
+      continue;
     }
     
-    if (!item.querySelector(badgeClassSelectors) && !hasMemberStarIcon(item)) return;
+    if (!item.querySelector(badgeClassSelectors) && !hasMemberStarIcon(item)) continue;
     
-    const itemId = getItemId(item);
-    if (!itemId || processedItems.has(itemId)) return;
+    if (!itemId || processedItems.has(itemId)) continue;
     
     processedItems.add(itemId);
     
-    if (!isWhitelisted(item)) {
-      const channelInfo = getChannelInfo(item);
+    if (!(await isWhitelisted(item))) {
+      permanentlyBlockedItems.add(itemId);
+      const channelInfo = await getChannelInfo(item);
       const ancestor = item.closest('ytd-rich-item-renderer, yt-lockup-view-model, ytd-video-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer') || item;
-      ancestor.remove();
+      hideElement(ancestor);
       removed++;
       
       if (videoTitle) {
@@ -282,7 +364,7 @@ function hideMembersOnlyContent() {
       
       console.log(`[YHM] BLOCKED - Video: "${videoTitle}" | Channel: "${channelInfo}"`);
     }
-  });
+  }
 
   if (removed > 0) {
     blockedNow += removed;
@@ -374,6 +456,7 @@ browser.runtime.onMessage.addListener((request) => {
     isEnabled = request.enabled;
     if (isEnabled) {
       processedItems.clear();
+      permanentlyBlockedItems.clear();
       hideMembersOnlyContent();
       startObserver();
     } else {
@@ -385,11 +468,14 @@ browser.runtime.onMessage.addListener((request) => {
     whitelistedChannels = request.channels || [];
     console.log('[YHM] Whitelist updated:', whitelistedChannels);
     processedItems.clear();
+    permanentlyBlockedItems.clear();
     hideMembersOnlyContent();
   }
   
   if (request.action === "clearCache") {
     blockedVideosCache.clear();
+    channelNameCache.clear();
+    permanentlyBlockedItems.clear();
     browser.storage.local.remove("blockedVideosCache");
     console.log('[YHM] Cache cleared');
   }
