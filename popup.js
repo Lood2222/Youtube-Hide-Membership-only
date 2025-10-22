@@ -7,8 +7,8 @@ async function updateStats() {
   document.getElementById("pageCount").textContent = message.pageCount;
   document.getElementById("totalCount").textContent = message.totalCount;
   
-  const data = await browser.storage.local.get("blockedTitlesCache");
-  const cacheSize = data.blockedTitlesCache ? data.blockedTitlesCache.length : 0;
+  const data = await browser.storage.local.get("blockedVideosCache");
+  const cacheSize = data.blockedVideosCache ? data.blockedVideosCache.length : 0;
   document.getElementById("cacheSize").textContent = cacheSize;
 }
 
@@ -67,6 +67,14 @@ function renderChannelList(channels) {
   const list = document.getElementById("channelList");
   list.innerHTML = "";
   
+  if (channels.length === 0) {
+    const emptyMessage = document.createElement("div");
+    emptyMessage.style.cssText = "color: #666; font-size: 12px; text-align: center; padding: 12px;";
+    emptyMessage.textContent = "No whitelisted channels";
+    list.appendChild(emptyMessage);
+    return;
+  }
+  
   channels.forEach(channel => {
     const item = document.createElement("div");
     item.className = "channel-item";
@@ -88,9 +96,15 @@ function renderChannelList(channels) {
 
 async function addChannel() {
   const input = document.getElementById("channelInput");
-  const channel = input.value.trim();
+  let channel = input.value.trim();
   
   if (!channel) return;
+  
+  // Normalizar el formato
+  // Si no tiene @ y no parece un ID de canal, agregarlo
+  if (!channel.startsWith('@') && !channel.startsWith('UC') && !channel.startsWith('HC')) {
+    channel = '@' + channel;
+  }
   
   const data = await browser.storage.local.get("whitelistedChannels");
   const channels = data.whitelistedChannels || [];
@@ -100,6 +114,9 @@ async function addChannel() {
     await browser.storage.local.set({ whitelistedChannels: channels });
     await browser.runtime.sendMessage({ action: "updateWhitelist", channels });
     renderChannelList(channels);
+    console.log(`[YHM Popup] Added channel to whitelist: ${channel}`);
+  } else {
+    console.log(`[YHM Popup] Channel already in whitelist: ${channel}`);
   }
   
   input.value = "";
@@ -113,6 +130,7 @@ async function removeChannel(channel) {
   await browser.storage.local.set({ whitelistedChannels: filtered });
   await browser.runtime.sendMessage({ action: "updateWhitelist", channels: filtered });
   renderChannelList(filtered);
+  console.log(`[YHM Popup] Removed channel from whitelist: ${channel}`);
 }
 
 // Abrir página de títulos cacheados
@@ -146,7 +164,7 @@ async function clearCache() {
     clearBtn.style.borderColor = "#555";
     clearBtn.style.color = "#999";
     
-    await browser.storage.local.remove("blockedTitlesCache");
+    await browser.storage.local.remove("blockedVideosCache");
     
     const tabs = await browser.tabs.query({ url: "https://www.youtube.com/*" });
     tabs.forEach(tab => {
@@ -155,7 +173,7 @@ async function clearCache() {
     
     await updateStats();
     
-    clearBtn.textContent = "✓ Cache cleared";
+    clearBtn.textContent = "Cache cleared";
     clearBtn.style.background = "#00d4aa";
     clearBtn.style.borderColor = "#00d4aa";
     clearBtn.style.color = "#1a1a1a";

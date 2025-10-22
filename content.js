@@ -5,7 +5,7 @@ let whitelistedChannels = [];
 let processedItems = new Set();
 let lastUrl = location.href;
 let checkInterval = null;
-let blockedTitlesCache = new Set();
+let blockedVideosCache = new Map(); // Cambiado a Map para guardar canal también
 
 async function checkIfEnabled() {
   const response = await browser.runtime.sendMessage({ action: "isEnabled" });
@@ -15,38 +15,44 @@ async function checkIfEnabled() {
 async function getWhitelist() {
   const response = await browser.runtime.sendMessage({ action: "getWhitelist" });
   whitelistedChannels = response.channels || [];
+  console.log('[YHM] Whitelist loaded:', whitelistedChannels);
 }
 
-async function loadBlockedTitlesCache() {
+async function loadBlockedVideosCache() {
   try {
-    const data = await browser.storage.local.get("blockedTitlesCache");
-    if (data.blockedTitlesCache && Array.isArray(data.blockedTitlesCache)) {
-      blockedTitlesCache = new Set(data.blockedTitlesCache);
-      console.log(`[YHM] Cache Loaded ${blockedTitlesCache.size} blocked titles in cache`);
+    const data = await browser.storage.local.get("blockedVideosCache");
+    if (data.blockedVideosCache && Array.isArray(data.blockedVideosCache)) {
+      blockedVideosCache = new Map(data.blockedVideosCache);
+      console.log(`[YHM] Cache loaded: ${blockedVideosCache.size} blocked videos`);
     }
   } catch (error) {
     console.error('[YHM] Error loading cache:', error);
   }
 }
 
-async function saveBlockedTitle(title) {
-  if (!title || blockedTitlesCache.has(title)) return;
+async function saveBlockedVideo(title, channelInfo) {
+  if (!title || blockedVideosCache.has(title)) return;
   
-  blockedTitlesCache.add(title);
+  blockedVideosCache.set(title, {
+    channel: channelInfo,
+    timestamp: Date.now()
+  });
   
   try {
-    const cacheArray = Array.from(blockedTitlesCache);
+    const cacheArray = Array.from(blockedVideosCache.entries());
     const maxCacheSize = 1000;
     
     if (cacheArray.length > maxCacheSize) {
-      const trimmedCache = cacheArray.slice(-maxCacheSize);
-      blockedTitlesCache = new Set(trimmedCache);
-      await browser.storage.local.set({ blockedTitlesCache: trimmedCache });
+      // Mantener los más recientes
+      const sortedCache = cacheArray.sort((a, b) => b[1].timestamp - a[1].timestamp);
+      const trimmedCache = sortedCache.slice(0, maxCacheSize);
+      blockedVideosCache = new Map(trimmedCache);
+      await browser.storage.local.set({ blockedVideosCache: trimmedCache });
     } else {
-      await browser.storage.local.set({ blockedTitlesCache: cacheArray });
+      await browser.storage.local.set({ blockedVideosCache: cacheArray });
     }
     
-    console.log(`[YHM] Saved title to cache: "${title}" (Total: ${blockedTitlesCache.size})`);
+    console.log(`[YHM] Saved to cache: "${title}" from ${channelInfo} (Total: ${blockedVideosCache.size})`);
   } catch (error) {
     console.error('[YHM] Error saving cache:', error);
   }
@@ -74,91 +80,137 @@ function getVideoTitle(item) {
 }
 
 function getChannelInfo(item) {
+  // Nuevos selectores para la estructura moderna
   const channelSelectors = [
-    'yt-formatted-string.ytd-channel-name',
+    'yt-content-metadata-view-model .yt-content-metadata-view-model__metadata-row span.yt-core-attributed-string',
+    '.yt-core-attributed-string.yt-content-metadata-view-model__metadata-text',
+    '.ytd-channel-name',
     '#channel-name #text',
-    '#text.ytd-channel-name',
-    'ytd-channel-name a',
-    '#channel-info #channel-name',
-    '.ytd-video-meta-block #channel-name',
-    'a.yt-simple-endpoint.style-scope.yt-formatted-string'
+    'a[href*="/@"]', // Handle moderno
   ];
-  
+
   for (const selector of channelSelectors) {
     const element = item.querySelector(selector);
     if (element) {
       const text = element.textContent?.trim();
-      if (text && text !== 'Verificada' && text.length > 0) {
+      if (text && text.length > 0 && !text.includes('subscribers') && !text.includes('Emitido')) {
+        console.log(`[YHM] Found channel name: "${text}" using selector: ${selector}`);
         return text;
       }
     }
   }
+
+  // Si no se encontró texto, buscar handle o ID del canal
+  const channelLinks = item.querySelectorAll('a[href*="/@"], a[href*="/channel/"], a[href*="/c/"]');
+
+  for (const link of channelLinks) {
+    const href = link.getAttribute('href');
+    if (!href) continue;
+
+    const handleMatch = href.match(/\/@([^\/\?]+)/);
+    if (handleMatch) return `@${handleMatch[1]}`;
+
+    const idMatch = href.match(/\/channel\/([^\/\?]+)/);
+    if (idMatch) return idMatch[1];
+
+    const customMatch = href.match(/\/c\/([^\/\?]+)/);
+    if (customMatch) return customMatch[1];
+  }
+
+  console.log('[YHM] Could not determine channel info for item');
+  return 'Unknown channel';
+}
+
+
+function normalizeChannelIdentifier(identifier) {
+  if (!identifier) return '';
   
-  const channelLink = item.querySelector('a[href*="/@"], a[href*="/channel/"]');
-  if (channelLink) {
-    const href = channelLink.getAttribute('href');
-    if (href) {
-      const handleMatch = href.match(/\/@([^\/\?]+)/);
-      if (handleMatch) return `@${handleMatch[1]}`;
-      
-      const channelMatch = href.match(/\/channel\/([^\/\?]+)/);
-      if (channelMatch) return channelMatch[1];
-    }
+  // Limpiar espacios y convertir a minúsculas
+  let normalized = identifier.trim().toLowerCase();
+  
+  // Si empieza con @, mantenerlo
+  if (normalized.startsWith('@')) {
+    return normalized;
   }
   
-  return 'Unknown channel';
+  return normalized;
 }
 
 function isWhitelisted(item) {
   const videoTitle = getVideoTitle(item) || 'Unknown video';
+  const channelInfo = getChannelInfo(item);
+  
+  console.log(`[YHM] Checking video: "${videoTitle}" from channel: "${channelInfo}"`);
   
   if (whitelistedChannels.length === 0) {
-    console.log(`[YHM] BLOCKED - Video: "${videoTitle}"`);
+    console.log(`[YHM] ❌ BLOCKED - No whitelist entries`);
     return false;
   }
   
   const currentUrl = window.location.href;
+  const normalizedChannelInfo = normalizeChannelIdentifier(channelInfo);
   
+  // Verificar si estamos en la página del canal
   for (const channel of whitelistedChannels) {
     const cleanChannel = channel.trim();
+    const normalizedWhitelist = normalizeChannelIdentifier(cleanChannel);
     
+    // Verificar URL actual
     if (cleanChannel.startsWith('@')) {
-      if (currentUrl.includes('/@' + cleanChannel.substring(1))) {
-        console.log(`[YHM] WHITELISTED (on channel page) - Video: "${videoTitle}" | Whitelist entry: ${cleanChannel}`);
+      const handle = cleanChannel.substring(1).toLowerCase();
+      if (currentUrl.toLowerCase().includes('/@' + handle)) {
+        console.log(`[YHM] ✅ WHITELISTED (on channel page) - Channel: ${cleanChannel}`);
         return true;
       }
     } else {
-      if (currentUrl.includes('/channel/' + cleanChannel) || currentUrl.includes('/c/' + cleanChannel)) {
-        console.log(`[YHM] WHITELISTED (on channel page) - Video: "${videoTitle}" | Whitelist entry: ${cleanChannel}`);
+      const channelLower = cleanChannel.toLowerCase();
+      if (currentUrl.toLowerCase().includes('/channel/' + channelLower) || 
+          currentUrl.toLowerCase().includes('/c/' + channelLower)) {
+        console.log(`[YHM] ✅ WHITELISTED (on channel page) - Channel: ${cleanChannel}`);
         return true;
       }
     }
-  }
-  
-  const allLinks = item.querySelectorAll('a[href]');
-  
-  for (const link of allLinks) {
-    const href = link.getAttribute('href');
     
-    for (const channel of whitelistedChannels) {
-      const cleanChannel = channel.trim();
+    // Comparar información del canal directamente
+    if (normalizedChannelInfo === normalizedWhitelist) {
+      console.log(`[YHM] ✅ WHITELISTED (direct match) - Channel: ${cleanChannel}`);
+      return true;
+    }
+    
+    // Si el whitelist tiene @ y el canal también
+    if (normalizedWhitelist.startsWith('@') && normalizedChannelInfo.startsWith('@')) {
+      if (normalizedWhitelist === normalizedChannelInfo) {
+        console.log(`[YHM] ✅ WHITELISTED (handle match) - Channel: ${cleanChannel}`);
+        return true;
+      }
+    }
+    
+    // Buscar en todos los enlaces del item
+    const allLinks = item.querySelectorAll('a[href]');
+    for (const link of allLinks) {
+      const href = link.getAttribute('href');
+      if (!href) continue;
+      
+      const hrefLower = href.toLowerCase();
       
       if (cleanChannel.startsWith('@')) {
-        const handle = cleanChannel.substring(1);
-        if (href && href.includes('/@' + handle)) {
-          console.log(`[YHM] WHITELISTED (video link match) - Video: "${videoTitle}" | Whitelist entry: ${cleanChannel}`);
+        const handle = cleanChannel.substring(1).toLowerCase();
+        if (hrefLower.includes('/@' + handle)) {
+          console.log(`[YHM] ✅ WHITELISTED (link match) - Channel: ${cleanChannel}`);
           return true;
         }
       } else {
-        if (href && (href.includes('/channel/' + cleanChannel) || href.includes('/c/' + cleanChannel))) {
-          console.log(`[YHM] WHITELISTED (video link match) - Video: "${videoTitle}" | Whitelist entry: ${cleanChannel}`);
+        const channelLower = cleanChannel.toLowerCase();
+        if (hrefLower.includes('/channel/' + channelLower) || 
+            hrefLower.includes('/c/' + channelLower)) {
+          console.log(`[YHM] ✅ WHITELISTED (link match) - Channel: ${cleanChannel}`);
           return true;
         }
       }
     }
   }
   
-  console.log(`[YHM] BLOCKED - Video: "${videoTitle}"`);
+  console.log(`[YHM] ❌ BLOCKED - Video: "${videoTitle}" | Channel: "${channelInfo}"`);
   return false;
 }
 
@@ -200,7 +252,8 @@ function hideMembersOnlyContent() {
   document.querySelectorAll(containers).forEach(item => {
     const videoTitle = getVideoTitle(item);
     
-    if (videoTitle && blockedTitlesCache.has(videoTitle)) {
+    // Verificar caché primero
+    if (videoTitle && blockedVideosCache.has(videoTitle)) {
       const itemId = getItemId(item);
       if (itemId && !processedItems.has(itemId)) {
         processedItems.add(itemId);
@@ -209,30 +262,32 @@ function hideMembersOnlyContent() {
           const ancestor = item.closest('ytd-rich-item-renderer, yt-lockup-view-model, ytd-video-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer') || item;
           ancestor.remove();
           removed++;
-          console.log(`[YHM] CACHE FAST BLOCK - Video: "${videoTitle}"`);
+          const cachedData = blockedVideosCache.get(videoTitle);
+          console.log(`[YHM] 🚀 CACHE FAST BLOCK - Video: "${videoTitle}" | Channel: ${cachedData.channel}`);
         }
       }
       return;
     }
     
+    // Verificar si tiene badge de membresía
     if (!item.querySelector(badgeClassSelectors) && !hasMemberStarIcon(item)) return;
     
     const itemId = getItemId(item);
-    
-    if (!itemId) return;
-    
-    if (processedItems.has(itemId)) return;
+    if (!itemId || processedItems.has(itemId)) return;
     
     processedItems.add(itemId);
     
     if (!isWhitelisted(item)) {
+      const channelInfo = getChannelInfo(item);
       const ancestor = item.closest('ytd-rich-item-renderer, yt-lockup-view-model, ytd-video-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer') || item;
       ancestor.remove();
       removed++;
       
       if (videoTitle) {
-        saveBlockedTitle(videoTitle);
+        saveBlockedVideo(videoTitle, channelInfo);
       }
+      
+      console.log(`[YHM] 🔒 BLOCKED - Video: "${videoTitle}" | Channel: "${channelInfo}"`);
     }
   });
 
@@ -250,6 +305,7 @@ function checkUrlChange() {
   if (currentUrl !== lastUrl) {
     lastUrl = currentUrl;
     processedItems.clear();
+    console.log('[YHM] URL changed, clearing processed items and re-scanning');
     setTimeout(() => {
       hideMembersOnlyContent();
     }, 500);
@@ -334,18 +390,24 @@ browser.runtime.onMessage.addListener((request) => {
   
   if (request.action === "updateWhitelist") {
     whitelistedChannels = request.channels || [];
+    console.log('[YHM] Whitelist updated:', whitelistedChannels);
     processedItems.clear();
     hideMembersOnlyContent();
   }
   
   if (request.action === "clearCache") {
-    blockedTitlesCache.clear();
-    browser.storage.local.remove("blockedTitlesCache");
+    blockedVideosCache.clear();
+    browser.storage.local.remove("blockedVideosCache");
     console.log('[YHM] Cache cleared');
   }
 });
 
-Promise.all([checkIfEnabled(), getWhitelist(), loadBlockedTitlesCache()]).then(() => {
+Promise.all([checkIfEnabled(), getWhitelist(), loadBlockedVideosCache()]).then(() => {
+  console.log('[YHM] Extension initialized');
+  console.log('[YHM] Enabled:', isEnabled);
+  console.log('[YHM] Whitelist:', whitelistedChannels);
+  console.log('[YHM] Cache size:', blockedVideosCache.size);
+  
   if (isEnabled) {
     hideMembersOnlyContent();
     startObserver();

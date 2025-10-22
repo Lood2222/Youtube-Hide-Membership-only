@@ -3,6 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <link rel="stylesheet" href="popup.css">
+  <style>
+    .section-description {
+      font-size: 11px;
+      color: #777;
+      line-height: 1.4;
+      margin-bottom: 12px;
+      padding: 8px;
+      background: #242424;
+      border-left: 3px solid #00d4aa;
+      border-radius: 3px;
+    }
+  </style>
 </head>
 <body>
   <div class="container">
@@ -47,8 +59,9 @@
       <div id="advancedContent" class="advanced-content hidden">
         <div class="whitelist-section">
           <div class="section-title">Whitelisted channels</div>
+          <div class="section-description">Members-only content from these channels will NOT be blocked</div>
           <div class="input-group">
-            <input type="text" id="channelInput" placeholder="@channelhandle" class="channel-input">
+            <input type="text" id="channelInput" placeholder="@channelhandle or channel name" class="channel-input">
             <button id="addChannelBtn" class="add-btn">Add</button>
           </div>
           <div id="channelList" class="channel-list"></div>
@@ -57,14 +70,14 @@
         <div class="cache-section">
           <div class="section-title">Cache management</div>
           <button id="viewCacheBtn" class="view-cache-btn">
-            <span class="cache-label">Cached titles:</span>
+            <span class="cache-label">Cached videos:</span>
             <span class="cache-count" id="cacheSize">0</span>
             <svg class="chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
           </button>
           <button id="clearCacheBtn" class="clear-cache-btn">Clear cache</button>
-          <div class="cache-info">Cache stores blocked video titles for faster detection</div>
+          <div class="cache-info">Cache stores blocked videos with channel info for faster detection</div>
         </div>
       </div>
     </div>

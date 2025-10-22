@@ -1,52 +1,94 @@
-let allTitles = [];
+let allVideos = [];
 
-async function loadCachedTitles() {
+async function loadCachedVideos() {
   const container = document.getElementById("titlesContainer");
   
   try {
-    const data = await browser.storage.local.get("blockedTitlesCache");
-    allTitles = data.blockedTitlesCache || [];
+    const data = await browser.storage.local.get("blockedVideosCache");
     
-    document.getElementById("totalCount").textContent = allTitles.length;
+    // Convertir Map entries a array de objetos
+    if (data.blockedVideosCache && Array.isArray(data.blockedVideosCache)) {
+      allVideos = data.blockedVideosCache.map(([title, info]) => ({
+        title: title,
+        channel: info.channel || 'Unknown channel',
+        timestamp: info.timestamp || Date.now()
+      }));
+    } else {
+      allVideos = [];
+    }
     
-    if (allTitles.length === 0) {
-      container.innerHTML = '<div class="no-titles">No cached titles yet</div>';
+    document.getElementById("totalCount").textContent = allVideos.length;
+    
+    if (allVideos.length === 0) {
+      container.innerHTML = '<div class="no-titles">No cached videos yet</div>';
       return;
     }
     
-    renderTitles(allTitles);
+    renderVideos(allVideos);
   } catch (error) {
-    container.innerHTML = '<div class="no-titles">Error loading titles</div>';
-    console.error("Error loading cached titles:", error);
+    container.innerHTML = '<div class="no-titles">Error loading cache</div>';
+    console.error("Error loading cached videos:", error);
   }
 }
 
-function renderTitles(titles) {
+function renderVideos(videos) {
   const container = document.getElementById("titlesContainer");
   container.innerHTML = "";
   
-  if (titles.length === 0) {
-    container.innerHTML = '<div class="no-results">No titles match your search</div>';
+  if (videos.length === 0) {
+    container.innerHTML = '<div class="no-results">No videos match your search</div>';
     return;
   }
   
-  // Ordenar alfabéticamente
-  const sortedTitles = [...titles].sort((a, b) => a.localeCompare(b));
+  // Ordenar por timestamp (más recientes primero)
+  const sortedVideos = [...videos].sort((a, b) => b.timestamp - a.timestamp);
   
-  sortedTitles.forEach((title, index) => {
+  sortedVideos.forEach((video, index) => {
     const item = document.createElement("div");
-    item.className = "title-item";
-    item.textContent = title;
+    item.className = "video-item";
+    
+    const titleDiv = document.createElement("div");
+    titleDiv.className = "video-title";
+    titleDiv.textContent = video.title;
+    
+    const channelDiv = document.createElement("div");
+    channelDiv.className = "video-channel";
+    channelDiv.textContent = video.channel;
+    
+    const timeDiv = document.createElement("div");
+    timeDiv.className = "video-time";
+    timeDiv.textContent = formatTimestamp(video.timestamp);
+    
+    item.appendChild(titleDiv);
+    item.appendChild(channelDiv);
+    item.appendChild(timeDiv);
+    
     item.style.animationDelay = `${Math.min(index * 0.02, 0.5)}s`;
     container.appendChild(item);
   });
 }
 
-function filterTitles(searchTerm) {
-  const filtered = allTitles.filter(title => 
-    title.toLowerCase().includes(searchTerm.toLowerCase())
+function formatTimestamp(timestamp) {
+  const now = Date.now();
+  const diff = now - timestamp;
+  
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (days > 0) return `${days}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  if (minutes > 0) return `${minutes}m ago`;
+  return 'Just now';
+}
+
+function filterVideos(searchTerm) {
+  const filtered = allVideos.filter(video => 
+    video.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    video.channel.toLowerCase().includes(searchTerm.toLowerCase())
   );
-  renderTitles(filtered);
+  renderVideos(filtered);
 }
 
 // Event listeners
@@ -55,8 +97,8 @@ document.getElementById("backBtn").addEventListener("click", () => {
 });
 
 document.getElementById("searchInput").addEventListener("input", (e) => {
-  filterTitles(e.target.value);
+  filterVideos(e.target.value);
 });
 
-// Cargar títulos al abrir la página
-loadCachedTitles();
+// Cargar videos al abrir la página
+loadCachedVideos();
