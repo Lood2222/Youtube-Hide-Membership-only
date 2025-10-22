@@ -6,6 +6,11 @@ async function updateStats() {
   
   document.getElementById("pageCount").textContent = message.pageCount;
   document.getElementById("totalCount").textContent = message.totalCount;
+  
+  // Update cache size
+  const data = await browser.storage.local.get("blockedTitlesCache");
+  const cacheSize = data.blockedTitlesCache ? data.blockedTitlesCache.length : 0;
+  document.getElementById("cacheSize").textContent = cacheSize;
 }
 
 async function updatePowerButton() {
@@ -111,6 +116,64 @@ async function removeChannel(channel) {
   renderChannelList(filtered);
 }
 
+async function clearCache() {
+  const clearBtn = document.getElementById("clearCacheBtn");
+  const originalText = clearBtn.textContent;
+  
+  // Change button to confirmation state
+  clearBtn.textContent = "Click again to confirm";
+  clearBtn.style.background = "#ff6600";
+  clearBtn.style.borderColor = "#ff6600";
+  clearBtn.style.color = "#fff";
+  
+  // Set timeout to revert if not clicked again
+  const timeoutId = setTimeout(() => {
+    clearBtn.textContent = originalText;
+    clearBtn.style.background = "";
+    clearBtn.style.borderColor = "";
+    clearBtn.style.color = "";
+    clearBtn.onclick = clearCache;
+  }, 3000);
+  
+  // Change onclick to actual clear function
+  clearBtn.onclick = async () => {
+    clearTimeout(timeoutId);
+    
+    // Show clearing animation
+    clearBtn.textContent = "Clearing...";
+    clearBtn.disabled = true;
+    clearBtn.style.background = "#404040";
+    clearBtn.style.borderColor = "#555";
+    clearBtn.style.color = "#999";
+    
+    await browser.storage.local.remove("blockedTitlesCache");
+    
+    // Notify all content scripts to clear their cache
+    const tabs = await browser.tabs.query({ url: "https://www.youtube.com/*" });
+    tabs.forEach(tab => {
+      browser.tabs.sendMessage(tab.id, { action: "clearCache" }).catch(() => {});
+    });
+    
+    await updateStats();
+    
+    // Show success state
+    clearBtn.textContent = "✓ Cache cleared";
+    clearBtn.style.background = "#00d4aa";
+    clearBtn.style.borderColor = "#00d4aa";
+    clearBtn.style.color = "#1a1a1a";
+    
+    // Revert to original state after delay
+    setTimeout(() => {
+      clearBtn.textContent = originalText;
+      clearBtn.disabled = false;
+      clearBtn.style.background = "";
+      clearBtn.style.borderColor = "";
+      clearBtn.style.color = "";
+      clearBtn.onclick = clearCache;
+    }, 2000);
+  };
+}
+
 document.getElementById("addChannelBtn").addEventListener("click", addChannel);
 
 document.getElementById("channelInput").addEventListener("keypress", (e) => {
@@ -118,3 +181,5 @@ document.getElementById("channelInput").addEventListener("keypress", (e) => {
     addChannel();
   }
 });
+
+document.getElementById("clearCacheBtn").addEventListener("click", clearCache);

@@ -5,6 +5,7 @@ let whitelistedChannels = [];
 let processedItems = new Set();
 let lastUrl = location.href;
 let checkInterval = null;
+let blockedTitlesCache = new Set();
 
 async function checkIfEnabled() {
   const response = await browser.runtime.sendMessage({ action: "isEnabled" });
@@ -14,6 +15,41 @@ async function checkIfEnabled() {
 async function getWhitelist() {
   const response = await browser.runtime.sendMessage({ action: "getWhitelist" });
   whitelistedChannels = response.channels || [];
+}
+
+async function loadBlockedTitlesCache() {
+  try {
+    const data = await browser.storage.local.get("blockedTitlesCache");
+    if (data.blockedTitlesCache && Array.isArray(data.blockedTitlesCache)) {
+      blockedTitlesCache = new Set(data.blockedTitlesCache);
+      console.log(`[YHM Cache] Loaded ${blockedTitlesCache.size} blocked titles from cache`);
+    }
+  } catch (error) {
+    console.error('[YHM Cache] Error loading cache:', error);
+  }
+}
+
+async function saveBlockedTitle(title) {
+  if (!title || blockedTitlesCache.has(title)) return;
+  
+  blockedTitlesCache.add(title);
+  
+  try {
+    const cacheArray = Array.from(blockedTitlesCache);
+    const maxCacheSize = 1000;
+    
+    if (cacheArray.length > maxCacheSize) {
+      const trimmedCache = cacheArray.slice(-maxCacheSize);
+      blockedTitlesCache = new Set(trimmedCache);
+      await browser.storage.local.set({ blockedTitlesCache: trimmedCache });
+    } else {
+      await browser.storage.local.set({ blockedTitlesCache: cacheArray });
+    }
+    
+    console.log(`[YHM Cache] Saved title to cache: "${title}" (Total: ${blockedTitlesCache.size})`);
+  } catch (error) {
+    console.error('[YHM Cache] Error saving cache:', error);
+  }
 }
 
 function getItemId(item) {
@@ -30,6 +66,11 @@ function getItemId(item) {
   if (videoTitle) return videoTitle;
   
   return null;
+}
+
+function getVideoTitle(item) {
+  const titleElement = item.querySelector('#video-title, h3, .title');
+  return titleElement?.textContent?.trim() || null;
 }
 
 function getChannelInfo(item) {
@@ -69,7 +110,7 @@ function getChannelInfo(item) {
 }
 
 function isWhitelisted(item) {
-  const videoTitle = item.querySelector('#video-title, h3, .title')?.textContent?.trim() || 'Unknown video';
+  const videoTitle = getVideoTitle(item) || 'Unknown video';
   
   if (whitelistedChannels.length === 0) {
     console.log(`[YHM]  BLOCKED - Video: "${videoTitle}"`);
@@ -157,6 +198,25 @@ function hideMembersOnlyContent() {
   let removed = 0;
 
   document.querySelectorAll(containers).forEach(item => {
+    const videoTitle = getVideoTitle(item);
+    
+    // Fast path: check cache first
+    if (videoTitle && blockedTitlesCache.has(videoTitle)) {
+      const itemId = getItemId(item);
+      if (itemId && !processedItems.has(itemId)) {
+        processedItems.add(itemId);
+        
+        if (!isWhitelisted(item)) {
+          const ancestor = item.closest('ytd-rich-item-renderer, yt-lockup-view-model, ytd-video-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer') || item;
+          ancestor.remove();
+          removed++;
+          console.log(`[YHM] CACHE FAST BLOCK - Video: "${videoTitle}"`);
+        }
+      }
+      return;
+    }
+    
+    // Slow path: check for membership badges
     if (!item.querySelector(badgeClassSelectors) && !hasMemberStarIcon(item)) return;
     
     const itemId = getItemId(item);
@@ -171,6 +231,11 @@ function hideMembersOnlyContent() {
       const ancestor = item.closest('ytd-rich-item-renderer, yt-lockup-view-model, ytd-video-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer') || item;
       ancestor.remove();
       removed++;
+      
+      // Save to cache for future fast blocking
+      if (videoTitle) {
+        saveBlockedTitle(videoTitle);
+      }
     }
   });
 
@@ -275,9 +340,15 @@ browser.runtime.onMessage.addListener((request) => {
     processedItems.clear();
     hideMembersOnlyContent();
   }
+  
+  if (request.action === "clearCache") {
+    blockedTitlesCache.clear();
+    browser.storage.local.remove("blockedTitlesCache");
+    console.log('[YHM] Cache cleared');
+  }
 });
 
-Promise.all([checkIfEnabled(), getWhitelist()]).then(() => {
+Promise.all([checkIfEnabled(), getWhitelist(), loadBlockedTitlesCache()]).then(() => {
   if (isEnabled) {
     hideMembersOnlyContent();
     startObserver();
