@@ -22,10 +22,10 @@ async function loadBlockedTitlesCache() {
     const data = await browser.storage.local.get("blockedTitlesCache");
     if (data.blockedTitlesCache && Array.isArray(data.blockedTitlesCache)) {
       blockedTitlesCache = new Set(data.blockedTitlesCache);
-      console.log(`[YHM Cache] Loaded ${blockedTitlesCache.size} blocked titles from cache`);
+      console.log(`[YHM] Cache Loaded ${blockedTitlesCache.size} blocked titles from cache`);
     }
   } catch (error) {
-    console.error('[YHM Cache] Error loading cache:', error);
+    console.error('[YHM] Error loading cache:', error);
   }
 }
 
@@ -46,9 +46,9 @@ async function saveBlockedTitle(title) {
       await browser.storage.local.set({ blockedTitlesCache: cacheArray });
     }
     
-    console.log(`[YHM Cache] Saved title to cache: "${title}" (Total: ${blockedTitlesCache.size})`);
+    console.log(`[YHM] Saved title to cache: "${title}" (Total: ${blockedTitlesCache.size})`);
   } catch (error) {
-    console.error('[YHM Cache] Error saving cache:', error);
+    console.error('[YHM] Error saving cache:', error);
   }
 }
 
@@ -200,7 +200,6 @@ function hideMembersOnlyContent() {
   document.querySelectorAll(containers).forEach(item => {
     const videoTitle = getVideoTitle(item);
     
-    // Fast path: check cache first
     if (videoTitle && blockedTitlesCache.has(videoTitle)) {
       const itemId = getItemId(item);
       if (itemId && !processedItems.has(itemId)) {
@@ -216,7 +215,6 @@ function hideMembersOnlyContent() {
       return;
     }
     
-    // Slow path: check for membership badges
     if (!item.querySelector(badgeClassSelectors) && !hasMemberStarIcon(item)) return;
     
     const itemId = getItemId(item);
@@ -232,7 +230,6 @@ function hideMembersOnlyContent() {
       ancestor.remove();
       removed++;
       
-      // Save to cache for future fast blocking
       if (videoTitle) {
         saveBlockedTitle(videoTitle);
       }

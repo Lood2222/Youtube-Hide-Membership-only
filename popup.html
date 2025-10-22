@@ -56,10 +56,13 @@
         
         <div class="cache-section">
           <div class="section-title">Cache management</div>
-          <div class="cache-stats">
+          <button id="viewCacheBtn" class="view-cache-btn">
             <span class="cache-label">Cached titles:</span>
             <span class="cache-count" id="cacheSize">0</span>
-          </div>
+            <svg class="chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
           <button id="clearCacheBtn" class="clear-cache-btn">Clear cache</button>
           <div class="cache-info">Cache stores blocked video titles for faster detection</div>
         </div>
