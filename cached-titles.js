@@ -6,7 +6,6 @@ async function loadCachedVideos() {
   try {
     const data = await browser.storage.local.get("blockedVideosCache");
     
-    // Convertir Map entries a array de objetos
     if (data.blockedVideosCache && Array.isArray(data.blockedVideosCache)) {
       allVideos = data.blockedVideosCache.map(([title, info]) => ({
         title: title,
@@ -40,7 +39,6 @@ function renderVideos(videos) {
     return;
   }
   
-  // Ordenar por timestamp (más recientes primero)
   const sortedVideos = [...videos].sort((a, b) => b.timestamp - a.timestamp);
   
   sortedVideos.forEach((video, index) => {
@@ -91,14 +89,9 @@ function filterVideos(searchTerm) {
   renderVideos(filtered);
 }
 
-// Event listeners
 document.getElementById("backBtn").addEventListener("click", () => {
   window.location.href = "popup.html";
 });
 
-document.getElementById("searchInput").addEventListener("input", (e) => {
-  filterVideos(e.target.value);
-});
 
-// Cargar videos al abrir la página
 loadCachedVideos();

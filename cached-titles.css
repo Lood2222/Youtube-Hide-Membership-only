@@ -164,7 +164,6 @@ body {
   font-style: italic;
 }
 
-/* Scrollbar personalizado */
 .titles-container::-webkit-scrollbar {
   width: 8px;
 }
@@ -182,7 +181,6 @@ body {
   background: #555;
 }
 
-/* Animación de entrada */
 @keyframes fadeIn {
   from {
     opacity: 0;

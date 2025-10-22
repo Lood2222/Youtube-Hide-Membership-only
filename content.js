@@ -5,7 +5,7 @@ let whitelistedChannels = [];
 let processedItems = new Set();
 let lastUrl = location.href;
 let checkInterval = null;
-let blockedVideosCache = new Map(); // Cambiado a Map para guardar canal también
+let blockedVideosCache = new Map();
 
 async function checkIfEnabled() {
   const response = await browser.runtime.sendMessage({ action: "isEnabled" });
@@ -43,7 +43,6 @@ async function saveBlockedVideo(title, channelInfo) {
     const maxCacheSize = 1000;
     
     if (cacheArray.length > maxCacheSize) {
-      // Mantener los más recientes
       const sortedCache = cacheArray.sort((a, b) => b[1].timestamp - a[1].timestamp);
       const trimmedCache = sortedCache.slice(0, maxCacheSize);
       blockedVideosCache = new Map(trimmedCache);
@@ -80,13 +79,12 @@ function getVideoTitle(item) {
 }
 
 function getChannelInfo(item) {
-  // Nuevos selectores para la estructura moderna
   const channelSelectors = [
     'yt-content-metadata-view-model .yt-content-metadata-view-model__metadata-row span.yt-core-attributed-string',
     '.yt-core-attributed-string.yt-content-metadata-view-model__metadata-text',
     '.ytd-channel-name',
     '#channel-name #text',
-    'a[href*="/@"]', // Handle moderno
+    'a[href*="/@"]',
   ];
 
   for (const selector of channelSelectors) {
@@ -100,7 +98,7 @@ function getChannelInfo(item) {
     }
   }
 
-  // Si no se encontró texto, buscar handle o ID del canal
+
   const channelLinks = item.querySelectorAll('a[href*="/@"], a[href*="/channel/"], a[href*="/c/"]');
 
   for (const link of channelLinks) {
@@ -125,10 +123,10 @@ function getChannelInfo(item) {
 function normalizeChannelIdentifier(identifier) {
   if (!identifier) return '';
   
-  // Limpiar espacios y convertir a minúsculas
+
   let normalized = identifier.trim().toLowerCase();
   
-  // Si empieza con @, mantenerlo
+
   if (normalized.startsWith('@')) {
     return normalized;
   }
@@ -143,49 +141,46 @@ function isWhitelisted(item) {
   console.log(`[YHM] Checking video: "${videoTitle}" from channel: "${channelInfo}"`);
   
   if (whitelistedChannels.length === 0) {
-    console.log(`[YHM] ❌ BLOCKED - No whitelist entries`);
+    console.log(`[YHM] BLOCKED - No whitelist entries`);
     return false;
   }
   
   const currentUrl = window.location.href;
   const normalizedChannelInfo = normalizeChannelIdentifier(channelInfo);
   
-  // Verificar si estamos en la página del canal
+
   for (const channel of whitelistedChannels) {
     const cleanChannel = channel.trim();
     const normalizedWhitelist = normalizeChannelIdentifier(cleanChannel);
     
-    // Verificar URL actual
+
     if (cleanChannel.startsWith('@')) {
       const handle = cleanChannel.substring(1).toLowerCase();
       if (currentUrl.toLowerCase().includes('/@' + handle)) {
-        console.log(`[YHM] ✅ WHITELISTED (on channel page) - Channel: ${cleanChannel}`);
+        console.log(`[YHM] WHITELISTED (on channel page) - Channel: ${cleanChannel}`);
         return true;
       }
     } else {
       const channelLower = cleanChannel.toLowerCase();
       if (currentUrl.toLowerCase().includes('/channel/' + channelLower) || 
           currentUrl.toLowerCase().includes('/c/' + channelLower)) {
-        console.log(`[YHM] ✅ WHITELISTED (on channel page) - Channel: ${cleanChannel}`);
+        console.log(`[YHM] WHITELISTED (on channel page) - Channel: ${cleanChannel}`);
         return true;
       }
     }
     
-    // Comparar información del canal directamente
     if (normalizedChannelInfo === normalizedWhitelist) {
-      console.log(`[YHM] ✅ WHITELISTED (direct match) - Channel: ${cleanChannel}`);
+      console.log(`[YHM] WHITELISTED (direct match) - Channel: ${cleanChannel}`);
       return true;
     }
     
-    // Si el whitelist tiene @ y el canal también
     if (normalizedWhitelist.startsWith('@') && normalizedChannelInfo.startsWith('@')) {
       if (normalizedWhitelist === normalizedChannelInfo) {
-        console.log(`[YHM] ✅ WHITELISTED (handle match) - Channel: ${cleanChannel}`);
+        console.log(`[YHM] WHITELISTED (handle match) - Channel: ${cleanChannel}`);
         return true;
       }
     }
     
-    // Buscar en todos los enlaces del item
     const allLinks = item.querySelectorAll('a[href]');
     for (const link of allLinks) {
       const href = link.getAttribute('href');
@@ -196,21 +191,21 @@ function isWhitelisted(item) {
       if (cleanChannel.startsWith('@')) {
         const handle = cleanChannel.substring(1).toLowerCase();
         if (hrefLower.includes('/@' + handle)) {
-          console.log(`[YHM] ✅ WHITELISTED (link match) - Channel: ${cleanChannel}`);
+          console.log(`[YHM] WHITELISTED (link match) - Channel: ${cleanChannel}`);
           return true;
         }
       } else {
         const channelLower = cleanChannel.toLowerCase();
         if (hrefLower.includes('/channel/' + channelLower) || 
             hrefLower.includes('/c/' + channelLower)) {
-          console.log(`[YHM] ✅ WHITELISTED (link match) - Channel: ${cleanChannel}`);
+          console.log(`[YHM] WHITELISTED (link match) - Channel: ${cleanChannel}`);
           return true;
         }
       }
     }
   }
   
-  console.log(`[YHM] ❌ BLOCKED - Video: "${videoTitle}" | Channel: "${channelInfo}"`);
+  console.log(`[YHM] BLOCKED - Video: "${videoTitle}" | Channel: "${channelInfo}"`);
   return false;
 }
 
@@ -252,7 +247,6 @@ function hideMembersOnlyContent() {
   document.querySelectorAll(containers).forEach(item => {
     const videoTitle = getVideoTitle(item);
     
-    // Verificar caché primero
     if (videoTitle && blockedVideosCache.has(videoTitle)) {
       const itemId = getItemId(item);
       if (itemId && !processedItems.has(itemId)) {
@@ -263,13 +257,12 @@ function hideMembersOnlyContent() {
           ancestor.remove();
           removed++;
           const cachedData = blockedVideosCache.get(videoTitle);
-          console.log(`[YHM] 🚀 CACHE FAST BLOCK - Video: "${videoTitle}" | Channel: ${cachedData.channel}`);
+          console.log(`[YHM] CACHE FAST BLOCK - Video: "${videoTitle}" | Channel: ${cachedData.channel}`);
         }
       }
       return;
     }
     
-    // Verificar si tiene badge de membresía
     if (!item.querySelector(badgeClassSelectors) && !hasMemberStarIcon(item)) return;
     
     const itemId = getItemId(item);
@@ -287,7 +280,7 @@ function hideMembersOnlyContent() {
         saveBlockedVideo(videoTitle, channelInfo);
       }
       
-      console.log(`[YHM] 🔒 BLOCKED - Video: "${videoTitle}" | Channel: "${channelInfo}"`);
+      console.log(`[YHM] BLOCKED - Video: "${videoTitle}" | Channel: "${channelInfo}"`);
     }
   });
 
