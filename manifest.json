@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "YouTube Hide Membership Only",
-  "version": "2.4",
+  "version": "2.4.1",
   "description": "Hides members only content on YouTube.",
   "permissions": [
     "https://www.youtube.com/*",

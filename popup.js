@@ -94,7 +94,7 @@ function renderChannelList(channels) {
   });
 }
 
-async function fetchChannelName(handle) {
+async function addfetchChannelName(handle) {
   const url = `https://www.youtube.com/${handle}`;
   try {
     const r = await fetch(url);
@@ -113,17 +113,40 @@ async function fetchChannelName(handle) {
   return null;
 }
 
+function showError(message) {
+  let errorMsg = document.querySelector('.error-message');
+  if (!errorMsg) {
+    errorMsg = document.createElement('div');
+    errorMsg.className = 'error-message';
+    document.querySelector('.input-group').appendChild(errorMsg);
+  }
+  errorMsg.textContent = message;
+  
+  setTimeout(() => {
+    if (errorMsg.parentNode) {
+      errorMsg.remove();
+    }
+  }, 3000);
+}
+
 async function addChannel() {
   const input = document.getElementById("channelInput");
   let channel = input.value.trim();
-  if (!channel.startsWith("@")) return;
+  
+  if (!channel.startsWith("@")) {
+    input.classList.add('error');
+    showError('Channel handle must start with @');
+    return;
+  }
+  
+  input.classList.remove('error');
 
   const data = await browser.storage.local.get("whitelistedChannels");
   const channels = data.whitelistedChannels || [];
 
   if (!channels.includes(channel)) {
     channels.push(channel);
-    const channelName = await fetchChannelName(channel);
+    const channelName = await addfetchChannelName(channel);
     if (channelName && !channels.includes(channelName)) {
       channels.push(channelName);
     }
@@ -199,6 +222,14 @@ async function clearCache() {
     }, 2000);
   };
 }
+
+document.getElementById("channelInput").addEventListener("input", function() {
+  this.classList.remove('error');
+  const errorMsg = document.querySelector('.error-message');
+  if (errorMsg) {
+    errorMsg.remove();
+  }
+});
 
 document.getElementById("addChannelBtn").addEventListener("click", addChannel);
 document.getElementById("channelInput").addEventListener("keypress", (e) => {
