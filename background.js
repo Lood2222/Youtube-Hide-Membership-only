@@ -4,6 +4,17 @@ let blockedPerTab = {};
 let extensionEnabled = true;
 let whitelistedChannels = [];
 
+async function clearCacheOnUpdate() {
+  await browser.storage.local.remove("blockedVideosCache");
+  console.log("Cache cleared after extension update");
+}
+
+browser.runtime.onInstalled.addListener(async (details) => {
+  if (details.reason === "update") {
+    await clearCacheOnUpdate();
+  }
+});
+
 async function initializeExtension() {
   const data = await browser.storage.local.get(["extensionEnabled", "whitelistedChannels"]);
   extensionEnabled = data.extensionEnabled !== false;
