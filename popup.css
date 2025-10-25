@@ -185,6 +185,8 @@ body {
   display: flex;
   gap: 8px;
   margin-bottom: 12px;
+  position: relative;
+  flex-wrap: wrap;
 }
 
 .channel-input {
@@ -196,10 +198,35 @@ body {
   font-size: 13px;
   border-radius: 4px;
   outline: none;
+  transition: border-color 0.2s ease;
 }
 
 .channel-input:focus {
   border-color: #00d4aa;
+}
+
+.channel-input.error {
+  border-color: #ef4444;
+  animation: shake 0.3s;
+}
+
+.error-message {
+  width: 100%;
+  color: #ef4444;
+  font-size: 11px;
+  margin-top: 4px;
+  animation: fadeIn 0.3s;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .add-btn {
